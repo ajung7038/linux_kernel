@@ -197,16 +197,19 @@ posix_acl_init(struct posix_acl *acl, int count)
 EXPORT_SYMBOL(posix_acl_init);
 
 /*
- * Allocate a new ACL with the specified number of entries.
+ * acl 할당 함수
+ * count : 할당할 ACL 항목 (posix_acl_entry 개수)
+ * flags : 메모리 할당 플래그
  */
 struct posix_acl *
 posix_acl_alloc(unsigned int count, gfp_t flags)
 {
 	struct posix_acl *acl;
 
+	// ACL 구조체 (posix_acl)와 count개의 ACL 엔트리를 동적 할당
 	acl = kmalloc(struct_size(acl, a_entries, count), flags);
 	if (acl)
-		posix_acl_init(acl, count);
+		posix_acl_init(acl, count); // 초기화
 	return acl;
 }
 EXPORT_SYMBOL(posix_acl_alloc);

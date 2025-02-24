@@ -12,63 +12,60 @@
 #include "acl.h"
 
 /*
- * Convert from filesystem to in-memory representation.
+ * 디스크에서 읽어온 원시 ACL 데이터를 메모리에서 사용할 수 있도록 POSIX ACL 형식으로 변환
+ * ext4_acl_entry -> posix_acl 형식으로 변환
  */
 static struct posix_acl *
 ext4_acl_from_disk(const void *value, size_t size)
 {
-	const char *end = (char *)value + size;
+	const char *end = (char *)value + size; // 가져온 값의 끝 (포인터 위치 이동)
 	int n, count;
-	struct posix_acl *acl;
+	struct posix_acl *acl; // ACL 구조체 포인터
 
-	if (!value)
+	if (!value) // 값이 없다면
 		return NULL;
-	if (size < sizeof(ext4_acl_header))
+	if (size < sizeof(ext4_acl_header)) // 구조체의 크기보다 size가 작은 경우 오류
 		 return ERR_PTR(-EINVAL);
-	if (((ext4_acl_header *)value)->a_version !=
-	    cpu_to_le32(EXT4_ACL_VERSION))
+	if (((ext4_acl_header *)value)->a_version != cpu_to_le32(EXT4_ACL_VERSION)) // ACL 버전이 일치하지 않으면 오류
 		return ERR_PTR(-EINVAL);
-	value = (char *)value + sizeof(ext4_acl_header);
-	count = ext4_acl_count(size);
-	if (count < 0)
+
+	value = (char *)value + sizeof(ext4_acl_header); // 값 시작 위치(포인터)에 acl_header 크기만큼 위치를 더하여 ACL 엔트리 목록이 시작하는 위치로 포인터 이동
+	count = ext4_acl_count(size); // acl 사이즈 카운트
+	if (count < 0) // 0보다 작으면 에러
 		return ERR_PTR(-EINVAL);
-	if (count == 0)
+	if (count == 0) // ACL 존재 X
 		return NULL;
-	acl = posix_acl_alloc(count, GFP_NOFS);
+	acl = posix_acl_alloc(count, GFP_NOFS); // acl 메모리 할당
 	if (!acl)
 		return ERR_PTR(-ENOMEM);
-	for (n = 0; n < count; n++) {
-		ext4_acl_entry *entry =
-			(ext4_acl_entry *)value;
-		if ((char *)value + sizeof(ext4_acl_entry_short) > end)
+	for (n = 0; n < count; n++) { // acl 엔트리 개수만큼 반복
+		ext4_acl_entry *entry = (ext4_acl_entry *)value; // 정보 저장 엔트리에 포인터 가리키기
+		if ((char *)value + sizeof(ext4_acl_entry_short) > end) // 메모리 오버플로우 (범위 초과)
 			goto fail;
-		acl->a_entries[n].e_tag  = le16_to_cpu(entry->e_tag);
-		acl->a_entries[n].e_perm = le16_to_cpu(entry->e_perm);
+		acl->a_entries[n].e_tag  = le16_to_cpu(entry->e_tag); // acl_entry 값을 posix_acl 엔트리의 값으로 대입 (유형 : 사용자, 그룹 등)
+		acl->a_entries[n].e_perm = le16_to_cpu(entry->e_perm); // acl_entry 값을 posix_acl 엔트리의 값으로 대입 (권한)
 
-		switch (acl->a_entries[n].e_tag) {
-		case ACL_USER_OBJ:
-		case ACL_GROUP_OBJ:
+		switch (acl->a_entries[n].e_tag) { // 유형에 따라 분류
+		case ACL_USER_OBJ: // 파일 소유자 권한
+		case ACL_GROUP_OBJ: // 파일 소유 그룹 권한
 		case ACL_MASK:
 		case ACL_OTHER:
 			value = (char *)value +
-				sizeof(ext4_acl_entry_short);
+				sizeof(ext4_acl_entry_short); // 유형이 올바르다면 포인터 이동 (방금 저장된 ext4_acl_entry_short 이후 다음 시작 위치로 이동)
 			break;
 
-		case ACL_USER:
-			value = (char *)value + sizeof(ext4_acl_entry);
-			if ((char *)value > end)
+		// 특정 사용자나 특정 그룹 유형이라면 id가 따로 필요함. 따라 ext4_acl_entry_short 사이즈가 아닌 ext4_acl_entry 사이즈와 id를 읽어 와야 함
+		case ACL_USER: // 특정 추가 사용자 유형이라면
+			value = (char *)value + sizeof(ext4_acl_entry); // 추가적인 id (e_id) 처리
+			if ((char *)value > end) // 메모리 오버플로우 (범위 초과)
 				goto fail;
-			acl->a_entries[n].e_uid =
-				make_kuid(&init_user_ns,
-					  le32_to_cpu(entry->e_id));
+			acl->a_entries[n].e_uid = make_kuid(&init_user_ns, le32_to_cpu(entry->e_id)); // id를 추가로 읽어 저장
 			break;
-		case ACL_GROUP:
+		case ACL_GROUP: // 특정 추가 그룹 유형이라면
 			value = (char *)value + sizeof(ext4_acl_entry);
-			if ((char *)value > end)
+			if ((char *)value > end) // 메모리 오버플로우 (범위 초과)
 				goto fail;
-			acl->a_entries[n].e_gid =
-				make_kgid(&init_user_ns,
-					  le32_to_cpu(entry->e_id));
+			acl->a_entries[n].e_gid = make_kgid(&init_user_ns, le32_to_cpu(entry->e_id)); // id를 추가로 읽어 저장
 			break;
 
 		default:

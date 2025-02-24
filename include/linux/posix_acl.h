@@ -18,19 +18,19 @@
 struct user_namespace;
 
 struct posix_acl_entry {
-	short			e_tag;
-	unsigned short		e_perm;
-	union {
-		kuid_t		e_uid;
-		kgid_t		e_gid;
+	short			e_tag; // ACL 엔트리 타입 (사용자, 그룹 등)
+	unsigned short		e_perm; // 해당 항목 권한
+	union { // 모든 멤버 변수가 하나의 메모리 공간 공유 (사용자 권한이면 사용자 ID, 그룹 권한이면 그룹 ID이므로 따로 존재할 필요가 없음)
+		kuid_t		e_uid; // 사용자 ID
+		kgid_t		e_gid; // 그룹 ID
 	};
 };
 
 struct posix_acl {
-	refcount_t		a_refcount;
-	unsigned int		a_count;
-	struct rcu_head		a_rcu;
-	struct posix_acl_entry	a_entries[] __counted_by(a_count);
+	refcount_t		a_refcount; // 참조 카운트를 관리하는 자료형 (참조 카운트가 0이 되면 메모리 해제)
+	unsigned int		a_count; // ACL 항목의 개수 (a_entries 배열에 저장된 항목 수)
+	struct rcu_head		a_rcu; // RCU (리눅스 동기화 매커니즘) 처리와 관련된 헤드 저장
+	struct posix_acl_entry	a_entries[] __counted_by(a_count); // 실제 ACL 항목 저장 배열 -> 각 항목은 posix_acl_entry 구조체로 이루어져 있음
 };
 
 #define FOREACH_ACL_ENTRY(pa, acl, pe) \
